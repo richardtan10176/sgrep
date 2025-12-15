@@ -8,7 +8,7 @@ The core mission is to provide secure, immediate, and context-aware answers to c
 
 ## Why Use sgrep?
 
-Modern development involves navigating large codebases. Current tools generally force a trade-off:
+Modern development involves navigating large and sometimes unfamiliar codebases. Current tools generally force a trade-off:
 
 | Tool Type                                           | Benefit                | Drawback                                                                                             |
 |:----------------------------------------------------|:-----------------------|:-----------------------------------------------------------------------------------------------------|
