@@ -21,4 +21,4 @@ sgrep attemps to address these issues by striking a balance between functionalit
 
 ## Contribution
 
-sgrep is open-source. Contributions from the community are more than welcome! [Link to contribution guidelines, coming soon!]
+sgrep is open-source. Issues & pull requests from the community are more than welcome! [Link to contribution guidelines, coming soon!]
