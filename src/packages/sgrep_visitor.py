@@ -2,8 +2,8 @@ import ast
 
 class sgrepVisitor(ast.NodeVisitor):
     def __init__(self):
-        self.scope_stack = [] #tracks the current path (e.g ['Database', 'connect'])
-        self.chunks = [] #stores the results
+        self.scope_stack = []
+        self.chunks = []
 
     def _get_context_header(self):
         return " > ".join(self.scope_stack)
