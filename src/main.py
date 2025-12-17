@@ -1,5 +1,5 @@
 from llama_cpp import Llama
-from visitor.sgrep_visitor import sgrepVisitor
+from packages.sgrep_visitor import sgrepVisitor
 import numpy as np
 import os
 
