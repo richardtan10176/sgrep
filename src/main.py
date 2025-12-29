@@ -1,26 +1,23 @@
+import os
+import pickle
+import argparse
+import numpy as np
 from sentence_transformers import SentenceTransformer, util
 from packages.sgrep_visitor import sgrepVisitor
-import numpy as np
-import os
 
 MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
+CACHE_DIR = os.path.expanduser("~/.cache/sgrep")
+INDEX_PATH = os.path.join(CACHE_DIR, "index.pkl")
 
-# automatically uses best API
 model = SentenceTransformer(MODEL_NAME)
 
 
 def search_codebase(query: str, chunks: list, top_k: int = 3):
-    """
-    Return top k results for given query
-    """
     print(f"\nSearching for: '{query}'")
 
     query_embedding = model.encode(query, convert_to_tensor=True)
-
     chunk_embeddings = np.stack([c['embedding'] for c in chunks])
-
     hits = util.semantic_search(query_embedding, chunk_embeddings, top_k=top_k)
-
     results = hits[0]
 
     print(f"Top {top_k} Matches:")
@@ -37,14 +34,22 @@ def search_codebase(query: str, chunks: list, top_k: int = 3):
         print("-" * 40)
 
 
-def init_path(path: str):
+def init_path(path: str, reindex: bool = False):
+    if not reindex and os.path.exists(INDEX_PATH):
+        try:
+            with open(INDEX_PATH, "rb") as f:
+                print("Loading index from cache...")
+                return pickle.load(f)
+        except Exception:
+            print("Cache corrupted, rebuilding...")
+
     parsed_chunks = []
 
     for root, dirs, files in os.walk(path):
         for file in files:
             if not file.endswith(".py"): continue
 
-            print(f"Parsing file: {file}")
+            print(f"chunking: {file}")
             file_path = os.path.join(root, file)
 
             with open(file_path, "r", encoding='utf-8') as f:
@@ -58,8 +63,9 @@ def init_path(path: str):
                 parsed_chunks.append(chunk)
 
     if not parsed_chunks:
-        print("No code chunks found.")
+        print("No chunks found!")
         return []
+
     print(f"Generating embeddings for {len(parsed_chunks)} code chunks...")
 
     texts_to_embed = [
@@ -72,12 +78,22 @@ def init_path(path: str):
     for i, chunk in enumerate(parsed_chunks):
         chunk['embedding'] = embeddings[i]
 
+    if not os.path.exists(CACHE_DIR):
+        os.makedirs(CACHE_DIR)
+
+    with open(INDEX_PATH, "wb") as f:
+        pickle.dump(parsed_chunks, f)
+        print(f"Index saved to {INDEX_PATH}")
+
     return parsed_chunks
 
 
 if __name__ == "__main__":
-    user_query = "How do I connect to the database"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("query", nargs="?", default="find shortest path")
+    parser.add_argument("--dir", default="sample_dir")
+    parser.add_argument("--reindex", action="store_true")
+    args = parser.parse_args()
 
-    target_dir = "sample_dir"
-    chunks = init_path(target_dir)
-    search_codebase(user_query, chunks, top_k=3)
+    chunks = init_path(args.dir, reindex=args.reindex)
+    search_codebase(args.query, chunks, top_k=3)
