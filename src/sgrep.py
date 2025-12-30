@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 import pickle
 import argparse
@@ -12,8 +14,8 @@ INDEX_PATH = os.path.join(CACHE_DIR, "index.pkl")
 model = SentenceTransformer(MODEL_NAME)
 
 
-def search_codebase(query: str, chunks: list, top_k: int = 3):
-    print(f"\nSearching for: '{query}'")
+def search_codebase(dir: str, query: str, chunks: list, top_k: int = 3):
+    print(f"\nSearching for: '{query}' in '{dir}'")
 
     query_embedding = model.encode(query, convert_to_tensor=True)
     chunk_embeddings = np.stack([c['embedding'] for c in chunks])
@@ -30,7 +32,7 @@ def search_codebase(query: str, chunks: list, top_k: int = 3):
         print(f"Score: {score:.4f} | Line {chunk['line_start']}")
         print(f"Context: {chunk['context']}")
         first_line = chunk['code'].split('\n')[0].strip()
-        print(f"Code: {first_line}...")
+        print(f"Code: {first_line}")
         print("-" * 40)
 
 
@@ -38,10 +40,10 @@ def init_path(path: str, reindex: bool = False):
     if not reindex and os.path.exists(INDEX_PATH):
         try:
             with open(INDEX_PATH, "rb") as f:
-                print("Loading index from cache...")
+                print("Loading index from cache")
                 return pickle.load(f)
         except Exception:
-            print("Cache corrupted, rebuilding...")
+            print("Cache corrupted, rebuilding")
 
     parsed_chunks = []
 
@@ -66,7 +68,7 @@ def init_path(path: str, reindex: bool = False):
         print("No chunks found!")
         return []
 
-    print(f"Generating embeddings for {len(parsed_chunks)} code chunks...")
+    print(f"Generating embeddings for {len(parsed_chunks)} code chunks")
 
     texts_to_embed = [
         f"{chunk['context']}\n{chunk['code']}"
@@ -90,10 +92,11 @@ def init_path(path: str, reindex: bool = False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("query", nargs="?", default="find shortest path")
-    parser.add_argument("--dir", default="sample_dir")
-    parser.add_argument("--reindex", action="store_true")
+    parser.add_argument("query", help="Query to search for")
+    parser.add_argument("--dir", default="./", help="Directory context to search")
+    parser.add_argument("--reindex", action="store_true", help="Flag to tell sgrep to rebuild the index (must be set following any code change)")
+    parser.add_argument("--top_K", action="store", type=int, default=3, help="Top K matches to return")
     args = parser.parse_args()
 
     chunks = init_path(args.dir, reindex=args.reindex)
-    search_codebase(args.query, chunks, top_k=3)
+    search_codebase(args.dir, args.query, chunks, top_k=args.top_K)
