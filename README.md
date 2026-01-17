@@ -10,11 +10,6 @@ The core mission is to provide secure, immediate, and context-aware answers to c
 
 Modern development involves navigating large and sometimes unfamiliar codebases. Current tools generally force a trade-off:
 
-| Tool Type                                           | Benefit                | Drawback                                                                                             |
-|:----------------------------------------------------|:-----------------------|:-----------------------------------------------------------------------------------------------------|
-| Regex-based Tools (grep, IDE Search)                | Speed and security     | Lack semantic understanding; require manual iteration to find code.                                  |
-| Cloud-based Agentic AI Tools(Copilot, Cursor, etc.) | Semantic understanding | Data security risks (data egress) and significant latency (API calls, overthinking simply problems). |
-
 sgrep attemps to address these issues by striking a balance between functionality, and speed, while retaining the natural language interaction we all have more or less grown accustomed to. 
 
 ---
