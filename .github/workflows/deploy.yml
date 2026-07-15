@@ -1,0 +1,57 @@
+name: Build and deploy to homelab
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  SGREP_IMAGE: ghcr.io/${{ github.repository_owner }}/sgrep
+
+jobs:
+  build-and-update-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push sgrep image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: |
+            ${{ env.SGREP_IMAGE }}:${{ github.sha }}
+            ${{ env.SGREP_IMAGE }}:latest
+
+      - name: Checkout homelab_config
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/homelab_config
+          token: ${{ secrets.HOMELAB_K3S }}
+          path: homelab
+
+      - name: Update manifest with new image tag
+        run: |
+          sed -i "s|image: ghcr.io/[^ ]*/sgrep:.*|image: ${{ env.SGREP_IMAGE }}:${{ github.sha }}|" homelab/apps/sgrep/k8s/sgrep.yaml
+
+      - name: Commit and push updated manifest
+        working-directory: homelab
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apps/sgrep/k8s
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "sgrep: deploy image ${{ github.sha }}"
+          git push
