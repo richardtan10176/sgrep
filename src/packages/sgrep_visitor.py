@@ -20,10 +20,13 @@ class sgrepVisitor(ast.NodeVisitor):
         self.chunks.append({
             "context": header,
             "code": func_source,
-            "line_start": node.lineno
+            "line_start": node.lineno,
+            "line_end": node.end_lineno,
         })
         self.generic_visit(node)
         self.scope_stack.pop()
+
+    visit_AsyncFunctionDef = visit_FunctionDef
 
     def parse(self, source_code):
         self.source_code = source_code
