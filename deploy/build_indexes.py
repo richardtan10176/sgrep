@@ -28,11 +28,18 @@ import sgrep  # noqa: E402
 
 # `subdir` is the path within the clone that holds the package source we index.
 # `local` repos are indexed in place (no clone) — used for sgrep itself.
+#
+# Each remote repo is pinned to a tag *and* the commit that tag pointed at when
+# it was added here. Without the pin, two builds of the same Dockerfile index
+# whatever `main` happened to be, and image contents drift silently; the sha
+# check also means a moved tag fails the build instead of changing the demo.
 REPOS = [
     {
         "id": "requests",
         "name": "requests",
         "url": "https://github.com/psf/requests",
+        "ref": "v2.34.2",
+        "sha": "6e83187b8feb273ed4c6cdab5efd8d54901dfab3",
         "subdir": "src/requests",
         "description": "psf/requests — the iconic Python HTTP library.",
     },
@@ -40,6 +47,8 @@ REPOS = [
         "id": "flask",
         "name": "Flask",
         "url": "https://github.com/pallets/flask",
+        "ref": "3.1.3",
+        "sha": "8d05782cf7e01c815ceed85eac9d744533af4c44",
         "subdir": "src/flask",
         "description": "pallets/flask — a lightweight WSGI web framework.",
     },
@@ -47,6 +56,8 @@ REPOS = [
         "id": "fastapi",
         "name": "FastAPI",
         "url": "https://github.com/fastapi/fastapi",
+        "ref": "0.139.2",
+        "sha": "866b7a3d0ce1025a3811f23aea4846d01a2b16a8",
         "subdir": "fastapi",
         "description": "fastapi/fastapi — modern async, type-hinted web framework.",
     },
@@ -60,11 +71,20 @@ REPOS = [
 ]
 
 
-def clone(url: str, dest: str):
+def clone(url: str, ref: str, sha: str, dest: str):
+    """Shallow-clone `ref` and verify it still resolves to the pinned commit."""
     subprocess.run(
-        ["git", "clone", "--depth", "1", url, dest],
+        ["git", "clone", "--depth", "1", "--branch", ref, url, dest],
         check=True,
     )
+    head = subprocess.run(
+        ["git", "-C", dest, "rev-parse", "HEAD"],
+        check=True, stdout=subprocess.PIPE, text=True,
+    ).stdout.strip()
+    if head != sha:
+        raise SystemExit(
+            f"{url} {ref} resolves to {head}, expected pinned {sha}"
+        )
 
 
 def build_one(repo: dict, out_dir: str, work_dir: str) -> dict:
@@ -73,7 +93,7 @@ def build_one(repo: dict, out_dir: str, work_dir: str) -> dict:
         root = repo["local"]
     else:
         clone_dir = os.path.join(work_dir, repo["id"])
-        clone(repo["url"], clone_dir)
+        clone(repo["url"], repo["ref"], repo["sha"], clone_dir)
         root = clone_dir
 
     index_root = os.path.join(root, repo.get("subdir", "."))

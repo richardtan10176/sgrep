@@ -25,6 +25,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # This is the only workflow that builds deploy/Dockerfile — the old
+      # build-demo.yml built the same image again under a second name on every
+      # push, paying twice for a multi-GB torch build.
       - name: Build and push sgrep image
         uses: docker/build-push-action@v5
         with:
@@ -34,6 +40,8 @@ jobs:
           tags: |
             ${{ env.SGREP_IMAGE }}:${{ github.sha }}
             ${{ env.SGREP_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Checkout homelab_config
         uses: actions/checkout@v4

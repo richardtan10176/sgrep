@@ -1,8 +1,13 @@
 .git
 .github
+.venv
+venv
 **/__pycache__
 **/*.pyc
-sample_dir
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
 deploy/indexes
 *.md
 LICENSE

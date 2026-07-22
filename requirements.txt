@@ -1,12 +1,15 @@
-# Direct runtime dependencies for sgrep.
+# Direct runtime dependencies for sgrep, pinned exactly so an image rebuilt
+# next month contains the same code as one built today.
 # sentence-transformers pulls in torch + transformers transitively.
 # In the demo image, CPU-only torch is installed separately (see deploy/Dockerfile)
 # to avoid the multi-GB CUDA wheel.
-# Version floors (not exact pins) because the runtime env wasn't available
-# to capture verified versions; tighten these once you have a known-good env.
-sentence-transformers>=3.0
-numpy>=1.24
+#
+# These target the image's Python 3.12. Transitive deps (transformers,
+# tokenizers, ...) still resolve freely — run pip-compile if you need a full
+# lockfile.
+sentence-transformers==5.6.0
+numpy==2.5.1
 
 # Web demo layer (src/web/app.py).
-fastapi>=0.110
-uvicorn[standard]>=0.29
+fastapi==0.139.2
+uvicorn[standard]==0.51.0

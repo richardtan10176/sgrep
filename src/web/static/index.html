@@ -65,7 +65,7 @@
 
   <form class="controls" id="form" autocomplete="off">
     <select id="repo" aria-label="Repository"></select>
-    <input id="query" placeholder="e.g. retry a request with backoff" aria-label="Query">
+    <input id="query" maxlength="500" placeholder="e.g. retry a request with backoff" aria-label="Query">
     <button id="go" type="submit">Search</button>
   </form>
   <div class="repo-desc" id="repoDesc"></div>
@@ -124,7 +124,7 @@ async function loadRepos() {
     if (!res.ok) throw new Error("failed to load repos");
     repos = await res.json();
     const sel = $("repo");
-    sel.innerHTML = repos.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join("");
+    sel.innerHTML = repos.map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join("");
     renderRepoDesc();
     setStatus(repos.length ? "Enter a query to search." : "No repositories available.", false);
   } catch (e) {
