@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sgrep — semantic code search from your terminal</title>
+<title>sgrep: grep + semantic search powered by AI</title>
 <style>
   :root {
     --bg: #0d1117; --chrome: #161b22; --panel: #0b0f14; --border: #30363d;
@@ -151,8 +151,7 @@
 <header>
   <h1><code>sgrep</code> — semantic code search from your terminal</h1>
   <p class="tagline">
-    Search code by intent, not keywords. This is the real tool: the terminal below runs actual
-    queries. Type one, or click a result to open the file. <kbd>↑</kbd> for history.
+    Quick demo of how sgrep would look in a real workflow.
   </p>
 </header>
 
@@ -176,11 +175,11 @@
     <div class="main">
       <div class="tabs" id="tabs"><div class="tab active">no file open</div></div>
       <div class="editor" id="editor">
-        <div class="placeholder">Run a search below, then click a result to open it here.</div>
+        <div class="placeholder">Run a search below, click a result to see it here</div>
       </div>
 
       <div class="terminal">
-        <div class="term-bar"><span class="on">Terminal</span><span>Problems</span><span>Output</span></div>
+        <div class="term-bar"><span class="on">Terminal</span></div>
         <div class="term-scroll" id="termScroll">
           <div class="term" id="term"></div>
           <div class="inputline" id="inputline" style="display:none">
@@ -194,7 +193,7 @@
 </div>
 
 <footer>
-  Runs 100% locally — no torch, no daemon, ~0.9s cold. Model: all-MiniLM-L6-v2 via ONNX Runtime.
+  Runs 100% locally. Model: all-MiniLM-L6-v2 via ONNX Runtime.
   <a href="https://github.com/richardtan10176/sgrep">source</a>
 </footer>
 
@@ -414,7 +413,7 @@ function selectRepo(id) {
 
 /* ---------------------------------------------------------------------- boot */
 async function boot() {
-  write(`<span class="dim">sgrep demo — a real index, served from a homelab k3s cluster.</span>`);
+  write(`<span class="dim">sgrep demo, try searching for anything!`);
   let loaded = false;
   while (!loaded) {
     try {
