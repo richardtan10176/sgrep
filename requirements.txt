@@ -1,13 +1,11 @@
 # Direct runtime dependencies for sgrep, pinned exactly so an image rebuilt
-# next month contains the same code as one built today.
-# sentence-transformers pulls in torch + transformers transitively.
-# In the demo image, CPU-only torch is installed separately (see deploy/Dockerfile)
-# to avoid the multi-GB CUDA wheel.
+# next month behaves like one built today.
 #
-# These target the image's Python 3.12. Transitive deps (transformers,
-# tokenizers, ...) still resolve freely — run pip-compile if you need a full
-# lockfile.
-sentence-transformers==5.6.0
+# No torch: queries run the model's prebuilt ONNX graph on onnxruntime, which
+# imports in a fraction of the time and takes ~2GB off the image. See
+# src/embedder.py.
+onnxruntime==1.27.0
+tokenizers==0.23.1
 numpy==2.5.1
 
 # Web demo layer (src/web/app.py).

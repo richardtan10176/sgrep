@@ -11,46 +11,40 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    HF_HOME=/opt/models \
-    SENTENCE_TRANSFORMERS_HOME=/opt/models
+    SGREP_MODEL_DIR=/opt/models
 
 WORKDIR /app
 
-# CPU-only torch first (avoids the multi-GB CUDA wheel), then the rest.
+# No torch: embedding runs the prebuilt ONNX graph on onnxruntime, which is
+# ~20 MB of wheel instead of a multi-GB CUDA/CPU torch install.
 COPY requirements.txt .
-RUN pip install torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install -r requirements.txt
+RUN pip install -r requirements.txt
 
 # App source + index builder.
 COPY src ./src
 COPY deploy ./deploy
 
-# Downloads the model into /opt/models AND builds /opt/indexes/*.npz + manifest.
-# Runtime needs only the .npz files (each chunk carries its own snippet), so the
-# clones this makes are discarded by the builder itself.
+# Fetch the pinned model into /opt/models so the runtime image never needs
+# network, then build /opt/indexes/*.npz + manifest + the source snapshot the
+# demo's editor pane serves. The clones this makes are discarded by the builder.
+RUN python -c "import sys; sys.path.insert(0, 'src'); import embedder; embedder.ensure_model()"
 RUN python deploy/build_indexes.py --out /opt/indexes
 
 # ---------------------------------------------------------------------------
-# Runtime: copy installed packages + model cache + indexes. No pip, no network.
+# Runtime: copy installed packages + model + indexes. No pip, no network.
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim AS runtime
 
-# libgomp1 is required by torch's CPU kernels.
-RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
-
-ENV HF_HOME=/opt/models \
-    SENTENCE_TRANSFORMERS_HOME=/opt/models \
+ENV SGREP_MODEL_DIR=/opt/models \
     SGREP_INDEX_DIR=/opt/indexes \
-    HF_HUB_OFFLINE=1 \
-    TRANSFORMERS_OFFLINE=1 \
+    SGREP_OFFLINE=1 \
     PYTHONUNBUFFERED=1
 
 # Installed Python packages + console scripts from the builder.
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Baked model cache + prebuilt indexes.
+# Baked model + prebuilt indexes and sources.
 COPY --from=builder /opt/models /opt/models
 COPY --from=builder /opt/indexes /opt/indexes
 

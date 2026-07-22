@@ -47,6 +47,7 @@ log = logging.getLogger("sgrep.web")
 # Populated by the background warmup task.
 _MANIFEST = []          # public repo metadata (no embeddings)
 _INDEXES = {}           # repo id -> sgrep.Index
+_SOURCES = {}           # repo id -> (source_root, frozenset of allowed paths)
 _READY = False
 _WARMUP_ERROR = None
 _SEARCH_SLOTS = None    # asyncio.Semaphore, created inside the running loop
@@ -65,12 +66,26 @@ def _load_indexes():
 
     for entry in manifest:
         npz_path = os.path.join(INDEX_DIR, entry["npz"])
-        _INDEXES[entry["id"]] = sgrep.load_index(npz_path)
+        index = sgrep.load_index(npz_path)
+        _INDEXES[entry["id"]] = index
+
+        # The set of paths the index knows about *is* the allowlist for
+        # /api/file. Serving only what we indexed makes traversal structurally
+        # impossible rather than something a filter has to catch.
+        paths = frozenset(
+            c["display_path"] for c in index.metadata if c.get("display_path")
+        )
+        if entry.get("sources"):
+            _SOURCES[entry["id"]] = (
+                os.path.join(INDEX_DIR, entry["sources"]), paths
+            )
+
         _MANIFEST.append({
             "id": entry["id"],
             "name": entry["name"],
             "description": entry["description"],
             "chunk_count": entry["chunk_count"],
+            "files": sorted(paths),
         })
 
 
@@ -110,6 +125,8 @@ class SearchRequest(BaseModel):
     repo: str
     query: str = Field(..., min_length=1, max_length=MAX_QUERY_LEN)
     top_k: int = 3
+    # Lets the demo terminal honor `--min-score` the way the CLI does.
+    min_score: float = Field(default=None, ge=0.0, le=1.0)
 
 
 def _require_ready():
@@ -151,10 +168,39 @@ async def api_search(req: SearchRequest):
     if _SEARCH_SLOTS.locked():
         raise HTTPException(status_code=503, detail="busy, try again shortly")
     async with _SEARCH_SLOTS:
+        # Same score floor the CLI applies, so the demo answers "no matches"
+        # on an off-topic query instead of showing the least-bad rows.
+        min_score = (sgrep.DEFAULT_MIN_SCORE if req.min_score is None
+                     else req.min_score)
         results = await asyncio.to_thread(
-            sgrep.search, query, index, top_k, sgrep.get_model()
+            sgrep.search, query, index, top_k, sgrep.get_model(), min_score,
         )
     return {"repo": req.repo, "query": query, "results": results}
+
+
+@app.get("/api/file")
+def api_file(repo: str, path: str):
+    """Serve one indexed source file so the demo can open a hit in context."""
+    _require_ready()
+
+    entry = _SOURCES.get(repo)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"no sources for repo: {repo}")
+
+    source_root, allowed = entry
+    if path not in allowed:
+        # Not "does it escape the root" — it simply isn't a file we indexed.
+        raise HTTPException(status_code=404, detail=f"unknown file: {path}")
+
+    full = os.path.join(source_root, path)
+    try:
+        with open(full, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        raise HTTPException(status_code=404, detail="file unavailable") from None
+
+    return {"repo": repo, "path": path, "text": text,
+            "lines": text.count("\n") + 1}
 
 
 @app.get("/")

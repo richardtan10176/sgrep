@@ -8,13 +8,14 @@ version = "0.1.0"
 description = "Local semantic code search for Python codebases"
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 # Floors, not pins: this is library metadata, so pip can pick a version that
 # suits the interpreter in use. The demo image pins exact versions instead —
-# see requirements.txt.
+# see requirements.txt. onnxruntime is what sets the >=3.11 floor above.
 dependencies = [
     "numpy>=1.24",
-    "sentence-transformers>=3.0",
+    "onnxruntime>=1.17",
+    "tokenizers>=0.15",
 ]
 
 [project.optional-dependencies]
@@ -29,7 +30,7 @@ sgrep = "sgrep:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-py-modules = ["sgrep"]
+py-modules = ["sgrep", "embedder"]
 # NOTE: `packages` is an unhelpfully generic top-level import name to install
 # into site-packages; worth renaming to `sgrep_packages` (or folding
 # sgrep_visitor.py up into src/) if this ever ships to PyPI.

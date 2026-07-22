@@ -115,6 +115,8 @@ def build_one(repo: dict, out_dir: str, work_dir: str) -> dict:
         print(f"[{repo['id']}] no chunks found, skipping")
         return None
 
+    sources = snapshot_sources(index_root, out_dir, repo["id"])
+
     print(f"[{repo['id']}] indexed {count} chunks -> {out_path}")
     return {
         "id": repo["id"],
@@ -122,7 +124,28 @@ def build_one(repo: dict, out_dir: str, work_dir: str) -> dict:
         "description": repo["description"],
         "chunk_count": count,
         "npz": npz_name,
+        "sources": sources,
     }
+
+
+def snapshot_sources(index_root: str, out_dir: str, repo_id: str) -> str:
+    """Copy the indexed .py files next to the index, mirroring display_path.
+
+    The demo's editor pane opens the real file a hit came from, which means the
+    runtime image needs the sources — the three corpora total ~1.3 MB, so this
+    is far cheaper than it sounds. Reuses sgrep.scan so exactly the files that
+    were indexed are the files that get shipped.
+    """
+    dest_root = os.path.join(out_dir, "sources", repo_id)
+    total = 0
+    for path in sgrep.scan(index_root):
+        rel = os.path.relpath(path, index_root).replace(os.sep, "/")
+        dest = os.path.join(dest_root, rel)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copyfile(path, dest)
+        total += os.path.getsize(dest)
+    print(f"[{repo_id}] snapshotted sources -> {dest_root} ({total/1e6:.2f} MB)")
+    return f"sources/{repo_id}"
 
 
 def main():

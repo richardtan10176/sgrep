@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import sys
 import json
 import argparse
 import hashlib
@@ -8,9 +9,25 @@ import subprocess
 
 import numpy as np
 
+import embedder
+
 
 CACHE_DIR = os.path.expanduser("~/.cache/sgrep")
-MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
+
+# Stamped into every index. The revision and runtime are part of the identity:
+# an index built by the old torch path, or against different weights, is
+# rejected by load_index and rebuilt rather than silently mixed with fresh
+# query vectors.
+MODEL_NAME = (
+    f"{embedder.MODEL_REPO}@{embedder.MODEL_REVISION[:8]}+onnx"
+)
+
+# Cosine floor below which a hit is treated as noise rather than a match.
+# Calibrated against the requests corpus: on-topic queries put their 5th-best
+# hit at 0.34-0.62, while off-topic ones ("recipe for chocolate cake") top out
+# around 0.20. Without a floor, cosine always returns *something* and "no
+# matches" — and therefore exit code 1 — could never happen.
+DEFAULT_MIN_SCORE = 0.25
 
 # Bump when the on-disk layout changes in a way older readers can't handle.
 # load_index refuses anything it doesn't recognise, so a stale cache is
@@ -33,12 +50,10 @@ class IndexFormatError(Exception):
 
 
 def get_model():
-    """Load the sentence-transformers model once and reuse it."""
+    """Load the embedding model once and reuse it."""
     global _MODEL
     if _MODEL is None:
-        print("Loading AI model...")
-        from sentence_transformers import SentenceTransformer
-        _MODEL = SentenceTransformer(MODEL_NAME)
+        _MODEL = embedder.OnnxEmbedder()
     return _MODEL
 
 
@@ -253,7 +268,7 @@ def _parse_files(paths, display_root: str):
             skipped += 1
         chunks.extend(file_chunks)
     if skipped:
-        print(f"Skipped {skipped} unreadable or unparsable file(s).")
+        print(f"Skipped {skipped} unreadable or unparsable file(s).", file=sys.stderr)
     return chunks
 
 
@@ -267,7 +282,7 @@ def embed_chunks(chunks: list, model=None, batch_size: int = None) -> np.ndarray
     if batch_size is None:
         batch_size = int(os.environ.get("SGREP_BATCH_SIZE", "64"))
 
-    print(f"Generating embeddings for {len(chunks)} code chunks...")
+    print(f"Generating embeddings for {len(chunks)} code chunks...", file=sys.stderr)
     texts = [f"{c['context']}\n{c['code']}" for c in chunks]
     embeddings = model.encode(texts, batch_size=batch_size, show_progress_bar=True)
     return np.asarray(embeddings, dtype=np.float32)
@@ -284,12 +299,12 @@ def build_index_from_root(root: str, display_root: str = None, model=None,
     if display_root is None:
         display_root = root
 
-    print("Parsing codebase...")
+    print("Parsing codebase...", file=sys.stderr)
     files = scan(root, use_gitignore=use_gitignore)
     chunks = _parse_files(sorted(files), display_root)
 
     if not chunks:
-        print("No chunks found!")
+        print("No chunks found!", file=sys.stderr)
         return Index([], np.zeros((0, 0), dtype=np.float32), files=files)
 
     embeddings = embed_chunks(chunks, model=model)
@@ -318,9 +333,9 @@ def update_index(index: Index, root: str, display_root: str = None, model=None,
         return index, False
 
     if removed:
-        print(f"Dropping {len(removed)} deleted file(s) from the index.")
+        print(f"Dropping {len(removed)} deleted file(s) from the index.", file=sys.stderr)
     if stale:
-        print(f"Re-indexing {len(stale)} new or changed file(s)...")
+        print(f"Re-indexing {len(stale)} new or changed file(s)...", file=sys.stderr)
 
     dropped = stale | removed
     keep = [i for i, c in enumerate(index.metadata)
@@ -366,11 +381,14 @@ def build_index(repo_root: str, out_path: str) -> int:
     return len(index)
 
 
-def search(query: str, index: Index, top_k: int = 3, model=None) -> list:
+def search(query: str, index: Index, top_k: int = 3, model=None,
+           min_score: float = 0.0) -> list:
     """Return the top_k semantic matches for `query` as structured dicts.
 
     Ranking is cosine similarity against the index's pre-normalized matrix, so
-    a query costs one encode plus one matmul.
+    a query costs one encode plus one matmul. Hits scoring below `min_score`
+    are dropped, which is what lets callers distinguish "nothing relevant"
+    from "here are the least-bad rows in the corpus".
     """
     if index is None or not len(index):
         return []
@@ -394,9 +412,12 @@ def search(query: str, index: Index, top_k: int = 3, model=None) -> list:
 
     results = []
     for i in top_idx:
+        score = float(scores[i])
+        if score < min_score:
+            break          # top_idx is sorted, so everything after is worse
         chunk = index.metadata[int(i)]
         results.append({
-            "score": float(scores[i]),
+            "score": score,
             "display_path": _chunk_display_path(chunk),
             "line_start": chunk['line_start'],
             "line_end": chunk.get('line_end'),
@@ -406,26 +427,49 @@ def search(query: str, index: Index, top_k: int = 3, model=None) -> list:
     return results
 
 
-def search_codebase(target_dir: str, query: str, index: Index, top_k: int = 3):
-    """CLI entry point: run a search and print the results."""
-    print(f"\nSearching for: '{query}' in '{os.path.abspath(target_dir)}'")
+def format_results(results: list, style: str = "full") -> str:
+    """Render hits for the terminal.
 
-    results = search(query, index, top_k=top_k)
-    if not results:
-        print("No matches found.")
-        return
+    `path` emits `file:line:` lines that editors, xargs and $EDITOR +N can
+    consume directly; `full` is the human-readable listing.
+    """
+    if style == "json":
+        return json.dumps(results, indent=2)
 
-    print(f"Top {len(results)} Matches:")
-    print("-" * 40)
+    if style == "path":
+        return "\n".join(
+            f"{h['display_path']}:{h['line_start']}:{h['context']}"
+            for h in results
+        )
+
+    lines = []
     for hit in results:
         line_ref = hit['line_start']
         if hit.get('line_end'):
             line_ref = f"{hit['line_start']}-{hit['line_end']}"
-        print(f"Score: {hit['score']:.4f} | {hit['display_path']}:{line_ref}")
-        print(f"Context: {hit['context']}")
         first_line = hit['code'].split('\n')[0].strip()
-        print(f"Code: {first_line}")
-        print("-" * 40)
+        lines.append(f"{hit['display_path']}:{line_ref}  ({hit['score']:.3f})")
+        lines.append(f"  {hit['context']}")
+        lines.append(f"  {first_line}")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def search_codebase(target_dir: str, query: str, index: Index, top_k: int = 3,
+                    style: str = "full", min_score: float = DEFAULT_MIN_SCORE) -> int:
+    """Run a search, print it, and return the number of hits."""
+    print(f"Searching for '{query}' in {os.path.abspath(target_dir)}",
+          file=sys.stderr)
+
+    results = search(query, index, top_k=top_k, min_score=min_score)
+    if not results:
+        print("No matches found.", file=sys.stderr)
+        if style == "json":
+            print("[]")
+        return 0
+
+    print(format_results(results, style))
+    return len(results)
 
 
 def init_path(path: str, reindex: bool = False) -> Index:
@@ -437,9 +481,9 @@ def init_path(path: str, reindex: bool = False) -> Index:
         try:
             index = load_index(index_path)
         except IndexFormatError as exc:
-            print(f"Cache unusable ({exc}), rebuilding")
+            print(f"Cache unusable ({exc}), rebuilding", file=sys.stderr)
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
-            print("Cache corrupted, rebuilding")
+            print("Cache corrupted, rebuilding", file=sys.stderr)
 
     if index is not None:
         index, changed = update_index(index, path)
@@ -452,26 +496,49 @@ def init_path(path: str, reindex: bool = False) -> Index:
 
     os.makedirs(CACHE_DIR, exist_ok=True)
     save_index(index_path, index)
-    print(f"Index saved to {index_path}")
+    print(f"Index saved to {index_path}", file=sys.stderr)
     return index
 
 
-def main():
+def main(argv=None) -> int:
+    """Exit codes follow grep: 0 found something, 1 found nothing, 2 failed."""
     parser = argparse.ArgumentParser(
-        description="Semantic code search over a local Python codebase."
+        prog="sgrep",
+        description="Semantic code search over a local Python codebase.",
     )
     parser.add_argument("query", help="Query to search for")
     parser.add_argument("--dir", default="./", help="Directory context to search")
     parser.add_argument("--reindex", action="store_true", help="Force rebuild index")
     parser.add_argument("--top-k", "--top_K", dest="top_k", type=int, default=3,
                         help="Number of matches to show (default: 3)")
-    args = parser.parse_args()
+    parser.add_argument("--format", dest="style", default="full",
+                        choices=("full", "path", "json"),
+                        help="Output style: full listing, file:line:, or JSON")
+    parser.add_argument("--json", dest="style", action="store_const", const="json",
+                        help="Shorthand for --format json")
+    parser.add_argument("--min-score", type=float, default=DEFAULT_MIN_SCORE,
+                        metavar="F",
+                        help=f"Drop hits below this cosine score "
+                             f"(default: {DEFAULT_MIN_SCORE}; 0 disables)")
+    args = parser.parse_args(argv)
 
     abs_dir = os.path.abspath(args.dir)
+    if not os.path.isdir(abs_dir):
+        print(f"sgrep: not a directory: {abs_dir}", file=sys.stderr)
+        return 2
 
-    index = init_path(abs_dir, reindex=args.reindex)
-    search_codebase(abs_dir, args.query, index, top_k=args.top_k)
+    try:
+        index = init_path(abs_dir, reindex=args.reindex)
+        found = search_codebase(abs_dir, args.query, index, top_k=args.top_k,
+                                style=args.style, min_score=args.min_score)
+    except KeyboardInterrupt:
+        return 2
+    except (OSError, RuntimeError, IndexFormatError) as exc:
+        print(f"sgrep: {exc}", file=sys.stderr)
+        return 2
+
+    return 0 if found else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -3,165 +3,481 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sgrep — semantic code search</title>
+<title>sgrep — semantic code search from your terminal</title>
 <style>
   :root {
-    --bg: #0d1117; --panel: #161b22; --border: #30363d;
-    --fg: #e6edf3; --muted: #8b949e; --accent: #2f81f7; --accent-fg: #fff;
-    --code-bg: #0b0f14;
+    --bg: #0d1117; --chrome: #161b22; --panel: #0b0f14; --border: #30363d;
+    --fg: #e6edf3; --muted: #8b949e; --accent: #2f81f7; --green: #3fb950;
+    --yellow: #d29922; --red: #f85149; --purple: #bc8cff; --orange: #ffa657;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; background: var(--bg); color: var(--fg);
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0; background: #010409; color: var(--fg);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 20px 16px 40px;
   }
-  .wrap { max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; }
-  h1 { margin: 0 0 4px; font-size: 26px; }
-  h1 .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--accent); }
-  .tagline { color: var(--muted); margin: 0 0 24px; }
-  .controls {
-    display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch;
+  header { max-width: 1180px; width: 100%; margin-bottom: 14px; }
+  h1 { margin: 0 0 4px; font-size: 21px; font-weight: 650; }
+  h1 code { font-family: var(--mono); color: var(--accent); font-size: 21px; }
+  .tagline { color: var(--muted); margin: 0; font-size: 14px; }
+  .tagline kbd {
+    font-family: var(--mono); font-size: 12px; background: var(--chrome);
+    border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px;
+  }
+
+  /* ---- editor shell ---- */
+  .ide {
+    width: 100%; max-width: 1180px; height: min(74vh, 720px); min-height: 460px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 16px 50px rgba(0,0,0,.5);
+  }
+  .titlebar {
+    display: flex; align-items: center; gap: 8px; padding: 9px 13px;
+    background: var(--chrome); border-bottom: 1px solid var(--border); flex: none;
+  }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .titlebar .name {
+    margin-left: 8px; color: var(--muted); font-size: 12px; font-family: var(--mono);
+  }
+  .body { flex: 1; display: flex; min-height: 0; }
+
+  /* ---- sidebar ---- */
+  .sidebar {
+    width: 216px; flex: none; background: var(--chrome);
+    border-right: 1px solid var(--border); overflow-y: auto; padding: 8px 0;
+  }
+  .sidebar h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin: 4px 12px 8px; font-weight: 600;
+  }
+  .repo-switch { padding: 0 8px 8px; }
+  .repo-switch select {
+    width: 100%; font: inherit; font-size: 12px; color: var(--fg);
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 10px; padding: 14px; margin-bottom: 8px;
+    border-radius: 6px; padding: 5px 7px;
   }
-  select, input, button {
-    font: inherit; color: var(--fg); background: var(--code-bg);
-    border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px;
+  .tree { font-family: var(--mono); font-size: 12px; }
+  .tree .file {
+    padding: 3px 12px 3px 22px; color: var(--muted); cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  #query { flex: 1 1 320px; }
-  select { flex: 0 0 auto; }
-  button {
-    background: var(--accent); color: var(--accent-fg); border-color: var(--accent);
-    cursor: pointer; font-weight: 600; padding: 10px 18px;
+  .tree .file:hover { background: rgba(255,255,255,.05); color: var(--fg); }
+  .tree .file.active { background: rgba(47,129,247,.16); color: var(--fg); }
+
+  /* ---- editor + terminal ---- */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .tabs {
+    display: flex; background: var(--chrome); border-bottom: 1px solid var(--border);
+    flex: none; overflow-x: auto;
   }
-  button:disabled { opacity: .55; cursor: default; }
-  .repo-desc { color: var(--muted); font-size: 13px; margin: 2px 4px 22px; min-height: 18px; }
-  .status { color: var(--muted); padding: 12px 4px; }
-  .status.error { color: #f85149; }
-  .hit {
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;
+  .tab {
+    padding: 7px 14px; font-family: var(--mono); font-size: 12px;
+    color: var(--muted); border-right: 1px solid var(--border);
+    background: var(--chrome); white-space: nowrap;
   }
-  .hit-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
-  .path { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: var(--accent); word-break: break-all; }
-  .ctx { color: var(--muted); font-size: 12px; }
-  .score {
-    margin-left: auto; font-size: 12px; color: var(--muted);
-    font-family: ui-monospace, monospace; white-space: nowrap;
+  .tab.active { background: var(--bg); color: var(--fg); }
+  .editor { flex: 1; overflow: auto; min-height: 0; background: var(--bg); }
+  .editor pre {
+    margin: 0; font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+    counter-reset: line;
   }
-  pre {
-    margin: 0; background: var(--code-bg); border: 1px solid var(--border);
-    border-radius: 7px; padding: 12px; overflow-x: auto;
-    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; line-height: 1.45;
+  .editor .ln { display: flex; padding: 0 8px; }
+  .editor .ln.hit { background: rgba(210,153,34,.12); }
+  .editor .ln.hit.first { box-shadow: inset 3px 0 0 var(--yellow); }
+  .editor .num {
+    flex: none; width: 46px; text-align: right; padding-right: 14px;
+    color: #4a5568; user-select: none;
   }
-  footer { color: var(--muted); font-size: 12px; margin-top: 32px; text-align: center; }
+  .editor .src { white-space: pre; }
+  .placeholder { color: var(--muted); padding: 24px; font-size: 13px; }
+
+  /* python highlighting */
+  .k { color: var(--purple); } .s { color: #a5d6ff; } .c { color: #6e7781; font-style: italic; }
+  .d { color: var(--orange); } .n { color: var(--green); } .f { color: #d2a8ff; }
+
+  /* ---- terminal ---- */
+  .terminal {
+    flex: none; height: 43%; min-height: 168px; background: var(--panel);
+    border-top: 1px solid var(--border); display: flex; flex-direction: column;
+  }
+  .term-bar {
+    display: flex; align-items: center; gap: 14px; padding: 5px 13px;
+    border-bottom: 1px solid var(--border); flex: none;
+  }
+  .term-bar span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+  .term-bar span.on { color: var(--fg); border-bottom: 1px solid var(--accent); padding-bottom: 4px; margin-bottom: -5px; }
+  .term-scroll { flex: 1; overflow-y: auto; padding: 9px 13px 13px; cursor: text; }
+  .term {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .term .prompt-user { color: var(--green); }
+  .term .prompt-path { color: var(--accent); }
+  .term .hit-path { color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+  .term .hit-path:hover { color: #79c0ff; }
+  .term .score { color: var(--muted); }
+  .term .ctx { color: var(--muted); }
+  .term .err { color: var(--red); }
+  .term .ok { color: var(--green); }
+  .term .dim { color: var(--muted); }
+  .inputline { display: flex; font-family: var(--mono); font-size: 12.5px; }
+  .inputline input {
+    flex: 1; background: transparent; border: 0; outline: 0; color: var(--fg);
+    font: inherit; padding: 0 0 0 6px;
+  }
+  .cursor {
+    display: inline-block; width: 7px; height: 15px; background: var(--fg);
+    vertical-align: text-bottom; animation: blink 1.1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+
+  footer { color: var(--muted); font-size: 12px; margin-top: 14px; text-align: center; max-width: 1180px; }
   footer a { color: var(--muted); }
+
+  @media (max-width: 820px) {
+    .sidebar { display: none; }
+    .ide { height: 82vh; }
+    .terminal { height: 52%; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1><span class="mono">sgrep</span> — the improved grep code search</h1>
-  <p class="tagline">Search real codebases by vibes, not keywords. pick a repo and ask in plain english.</p>
 
-  <form class="controls" id="form" autocomplete="off">
-    <select id="repo" aria-label="Repository"></select>
-    <input id="query" maxlength="500" placeholder="e.g. retry a request with backoff" aria-label="Query">
-    <button id="go" type="submit">Search</button>
-  </form>
-  <div class="repo-desc" id="repoDesc"></div>
+<header>
+  <h1><code>sgrep</code> — semantic code search from your terminal</h1>
+  <p class="tagline">
+    Search code by intent, not keywords. This is the real tool: the terminal below runs actual
+    queries. Type one, or click a result to open the file. <kbd>↑</kbd> for history.
+  </p>
+</header>
 
-  <div class="status" id="status">Loading repositories…</div>
-  <div id="results"></div>
+<div class="ide">
+  <div class="titlebar">
+    <span class="dot" style="background:#ff5f57"></span>
+    <span class="dot" style="background:#febc2e"></span>
+    <span class="dot" style="background:#28c840"></span>
+    <span class="name" id="titleName">~/code</span>
+  </div>
 
-  <footer>Runs 100% locally on a homelab k3s cluster · model: all-MiniLM-L6-v2</footer>
+  <div class="body">
+    <aside class="sidebar">
+      <div class="repo-switch">
+        <select id="repoSelect" aria-label="Repository"></select>
+      </div>
+      <h2>Explorer</h2>
+      <div class="tree" id="tree"></div>
+    </aside>
+
+    <div class="main">
+      <div class="tabs" id="tabs"><div class="tab active">no file open</div></div>
+      <div class="editor" id="editor">
+        <div class="placeholder">Run a search below, then click a result to open it here.</div>
+      </div>
+
+      <div class="terminal">
+        <div class="term-bar"><span class="on">Terminal</span><span>Problems</span><span>Output</span></div>
+        <div class="term-scroll" id="termScroll">
+          <div class="term" id="term"></div>
+          <div class="inputline" id="inputline" style="display:none">
+            <span id="promptEl"></span>
+            <input id="cmd" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Terminal input">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
+<footer>
+  Runs 100% locally — no torch, no daemon, ~0.9s cold. Model: all-MiniLM-L6-v2 via ONNX Runtime.
+  <a href="https://github.com/richardtan10176/sgrep">source</a>
+</footer>
+
 <script>
+"use strict";
 const $ = (id) => document.getElementById(id);
-let repos = [];
+const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function setStatus(msg, isError) {
-  const el = $("status");
-  el.textContent = msg || "";
-  el.className = "status" + (isError ? " error" : "");
-  el.style.display = msg ? "block" : "none";
+let repos = [], repo = null, openFile = null, history = [], histPos = 0;
+
+const esc = (s) => String(s).replace(/[&<>"']/g, c =>
+  ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+
+/* ------------------------------------------------------------------ terminal */
+function write(html) {
+  $("term").insertAdjacentHTML("beforeend", html + "\n");
+  $("termScroll").scrollTop = $("termScroll").scrollHeight;
+}
+function promptHtml() {
+  return `<span class="prompt-user">you@sgrep</span>:<span class="prompt-path">~/code/${esc(repo || "")}</span>$ `;
+}
+function setPrompt() { $("promptEl").innerHTML = promptHtml(); }
+
+const sleep = (ms) => new Promise(r => setTimeout(r, REDUCED ? 0 : ms));
+
+async function typeOut(text) {
+  const id = "typing";
+  write(`<span id="${id}">${promptHtml()}</span>`);
+  const el = $(id);
+  for (let i = 0; i < text.length; i++) {
+    el.insertAdjacentText("beforeend", text[i]);
+    $("termScroll").scrollTop = $("termScroll").scrollHeight;
+    await sleep(28 + Math.random() * 45);
+  }
+  el.removeAttribute("id");
+  await sleep(260);
 }
 
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, c => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  }[c]));
+/* ------------------------------------------------------------------ commands */
+function usage() {
+  write(`<span class="dim">sgrep — semantic code search over a Python codebase
+
+usage: sgrep [--top-k N] [--format full|path|json] [--min-score F] QUERY
+
+  --top-k N       number of matches (default 3)
+  --format path   emit file:line: for editors and xargs
+  --min-score F   drop hits below this cosine score (default 0.25)
+
+other commands in this demo:  cd ../REPO   ls   clear   help
+exit codes: 0 matched, 1 nothing matched, 2 error</span>`);
 }
 
-function renderRepoDesc() {
-  const r = repos.find(r => r.id === $("repo").value);
-  $("repoDesc").textContent = r ? `${r.description}  ·  ${r.chunk_count} indexed functions` : "";
-}
-
-function renderResults(data) {
-  const box = $("results");
-  box.innerHTML = "";
-  if (!data.results.length) { setStatus("No matches found.", false); return; }
-  setStatus("", false);
+function renderHits(data, style) {
+  if (!data.results.length) {
+    write(`<span class="dim">No matches found.</span>`);
+    write(`<span class="dim">$ echo $?  →  </span><span class="err">1</span>`);
+    return;
+  }
   for (const h of data.results) {
-    const line = h.line_end ? `${h.line_start}-${h.line_end}` : h.line_start;
-    const div = document.createElement("div");
-    div.className = "hit";
-    div.innerHTML =
-      `<div class="hit-head">` +
-        `<span class="path">${escapeHtml(h.display_path)}:${line}</span>` +
-        `<span class="ctx">${escapeHtml(h.context || "")}</span>` +
-        `<span class="score">${h.score.toFixed(3)}</span>` +
-      `</div>` +
-      `<pre>${escapeHtml(h.code || "")}</pre>`;
-    box.appendChild(div);
+    const lineRef = h.line_end ? `${h.line_start}-${h.line_end}` : h.line_start;
+    const link = `<span class="hit-path" data-path="${esc(h.display_path)}" data-line="${h.line_start}" data-end="${h.line_end || h.line_start}">${esc(h.display_path)}:${lineRef}</span>`;
+    if (style === "path") {
+      write(`${link}:<span class="ctx">${esc(h.context)}</span>`);
+    } else {
+      write(`${link}  <span class="score">(${h.score.toFixed(3)})</span>`);
+      write(`  <span class="ctx">${esc(h.context)}</span>`);
+      write(`  ${esc(h.code.split("\n")[0].trim())}`);
+      write("");
+    }
   }
+  write(`<span class="dim">$ echo $?  →  </span><span class="ok">0</span>`);
 }
 
-async function loadRepos() {
-  try {
-    const res = await fetch("/api/repos");
-    if (!res.ok) throw new Error("failed to load repos");
-    repos = await res.json();
-    const sel = $("repo");
-    sel.innerHTML = repos.map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join("");
-    renderRepoDesc();
-    setStatus(repos.length ? "Enter a query to search." : "No repositories available.", false);
-  } catch (e) {
-    setStatus("Service is still warming up (loading the model). Retrying…", true);
-    setTimeout(loadRepos, 3000);
+async function runSgrep(argv) {
+  let topK = 3, style = "full", minScore = null;
+  const words = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--top-k" || a === "-k") topK = parseInt(argv[++i], 10) || 3;
+    else if (a === "--format") style = argv[++i] || "full";
+    else if (a === "--json") style = "json";
+    else if (a === "--min-score") minScore = parseFloat(argv[++i]);
+    else if (a === "--help" || a === "-h") { usage(); return; }
+    else words.push(a);
   }
-}
+  const query = words.join(" ").replace(/^["']|["']$/g, "");
+  if (!query) { usage(); return; }
 
-async function doSearch(ev) {
-  ev.preventDefault();
-  const query = $("query").value.trim();
-  if (!query) return;
-  $("go").disabled = true;
-  setStatus("Searching…", false);
-  $("results").innerHTML = "";
+  const body = { repo, query, top_k: Math.min(Math.max(topK, 1), 10) };
+  if (minScore !== null && !Number.isNaN(minScore)) body.min_score = minScore;
+
   try {
     const res = await fetch("/api/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repo: $("repo").value, query, top_k: 5 }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
-    if (res.status === 503) throw new Error("Service is warming up, try again shortly.");
+    if (res.status === 503) { write(`<span class="err">sgrep: service warming up, try again shortly</span>`); return; }
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `search failed (${res.status})`);
+      const e = await res.json().catch(() => ({}));
+      write(`<span class="err">sgrep: ${esc(e.detail || res.status)}</span>`);
+      return;
     }
-    renderResults(await res.json());
-  } catch (e) {
-    setStatus(e.message, true);
-  } finally {
-    $("go").disabled = false;
+    const data = await res.json();
+    if (style === "json") {
+      write(`<span class="dim">${esc(JSON.stringify(data.results, null, 2))}</span>`);
+      return;
+    }
+    renderHits(data, style);
+  } catch (err) {
+    write(`<span class="err">sgrep: ${esc(err.message)}</span>`);
   }
 }
 
-$("form").addEventListener("submit", doSearch);
-$("repo").addEventListener("change", renderRepoDesc);
-loadRepos();
+async function execute(line) {
+  const cmd = line.trim();
+  if (!cmd) return;
+  const argv = cmd.split(/\s+/);
+
+  if (argv[0] === "clear") { $("term").innerHTML = ""; return; }
+  if (argv[0] === "help") { usage(); return; }
+  if (argv[0] === "ls") {
+    const files = (repos.find(r => r.id === repo) || {}).files || [];
+    write(`<span class="dim">${files.map(esc).join("  ")}</span>`);
+    return;
+  }
+  if (argv[0] === "cd") {
+    const target = (argv[1] || "").replace(/^\.\.\//, "").replace(/\/$/, "");
+    if (repos.some(r => r.id === target)) { selectRepo(target); write(""); }
+    else write(`<span class="err">cd: no such corpus: ${esc(argv[1] || "")}</span>`);
+    return;
+  }
+  if (argv[0] === "sgrep") { await runSgrep(argv.slice(1)); return; }
+  write(`<span class="err">${esc(argv[0])}: command not found</span><span class="dim">  (try: sgrep, ls, cd, clear, help)</span>`);
+}
+
+/* -------------------------------------------------------------------- editor */
+/* Single pass over the raw line, escaping each piece as it is emitted.
+   An earlier version highlighted the already-escaped string in several passes
+   using placeholders, and the number rule happily matched its own placeholder
+   indices - so keywords and strings silently stopped colouring. One regex,
+   one walk, no intermediate state. */
+const PY_TOKEN = new RegExp([
+  "(#.*$)",                                                        // 1 comment
+  "(\"\"\"|'''|\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*')",  // 2 string
+  "(@[A-Za-z_][\\w.]*)",                                            // 3 decorator
+  "\\b(def|class)\\s+([A-Za-z_]\\w*)",                             // 4 kw + 5 name
+  "\\b(return|if|elif|else|for|while|try|except|finally|with|as|import|" +
+    "from|raise|yield|lambda|pass|break|continue|and|or|not|in|is|None|" +
+    "True|False|async|await|global|nonlocal|assert|del|self|def|class)\\b",  // 6 keyword
+  "\\b(\\d+(?:\\.\\d+)?)\\b",                                     // 7 number
+].join("|"), "g");
+
+function highlight(line) {
+  let out = "", last = 0, m;
+  PY_TOKEN.lastIndex = 0;
+  while ((m = PY_TOKEN.exec(line)) !== null) {
+    out += esc(line.slice(last, m.index));
+    if (m[4]) {
+      out += `<span class="k">${esc(m[4])}</span> <span class="f">${esc(m[5])}</span>`;
+    } else {
+      const cls = m[1] ? "c" : m[2] ? "s" : m[3] ? "d" : m[6] ? "k" : "n";
+      out += `<span class="${cls}">${esc(m[0])}</span>`;
+    }
+    last = m.index + m[0].length;
+    if (m[0].length === 0) PY_TOKEN.lastIndex++;   // never spin on an empty match
+  }
+  return out + esc(line.slice(last));
+}
+
+async function openInEditor(path, line, endLine) {
+  $("tabs").innerHTML = `<div class="tab active">${esc(path.split("/").pop())}</div>`
+    + `<div class="tab">${esc(repo)}</div>`;
+  $("editor").innerHTML = `<div class="placeholder">Opening ${esc(path)}…</div>`;
+
+  try {
+    const res = await fetch(`/api/file?repo=${encodeURIComponent(repo)}&path=${encodeURIComponent(path)}`);
+    if (!res.ok) throw new Error(`could not open ${path}`);
+    const data = await res.json();
+    const lines = data.text.split("\n");
+    const html = lines.map((src, i) => {
+      const n = i + 1;
+      const hit = n >= line && n <= endLine;
+      const cls = "ln" + (hit ? " hit" : "") + (n === line ? " first" : "");
+      return `<div class="${cls}" id="L${n}"><span class="num">${n}</span><span class="src">${highlight(src) || " "}</span></div>`;
+    }).join("");
+    $("editor").innerHTML = `<pre>${html}</pre>`;
+    openFile = path;
+    markTree();
+    const target = $("L" + line);
+    if (target) target.scrollIntoView({ block: "center", behavior: REDUCED ? "auto" : "smooth" });
+  } catch (err) {
+    $("editor").innerHTML = `<div class="placeholder">${esc(err.message)}</div>`;
+  }
+}
+
+/* ------------------------------------------------------------ repos and tree */
+function markTree() {
+  for (const el of document.querySelectorAll(".tree .file"))
+    el.classList.toggle("active", el.dataset.path === openFile);
+}
+
+function renderTree() {
+  const entry = repos.find(r => r.id === repo);
+  const files = (entry && entry.files) || [];
+  $("tree").innerHTML = files.map(f =>
+    `<div class="file" data-path="${esc(f)}" title="${esc(f)}">${esc(f)}</div>`).join("");
+  markTree();
+}
+
+function selectRepo(id) {
+  repo = id;
+  $("repoSelect").value = id;
+  $("titleName").textContent = "~/code/" + id;
+  renderTree();
+  setPrompt();
+}
+
+/* ---------------------------------------------------------------------- boot */
+async function boot() {
+  write(`<span class="dim">sgrep demo — a real index, served from a homelab k3s cluster.</span>`);
+  let loaded = false;
+  while (!loaded) {
+    try {
+      const res = await fetch("/api/repos");
+      if (!res.ok) throw new Error("warming up");
+      repos = await res.json();
+      loaded = true;
+    } catch {
+      write(`<span class="dim">service is warming up (loading the model)…</span>`);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+
+  $("repoSelect").innerHTML = repos.map(r =>
+    `<option value="${esc(r.id)}">${esc(r.name)} — ${r.chunk_count} functions</option>`).join("");
+  selectRepo(repos[0].id);
+  write("");
+
+  // Autoplay one query so a visitor sees the workflow without typing.
+  const demo = 'sgrep "how are cookies persisted between requests"';
+  await typeOut(demo);
+  await execute(demo);
+
+  $("inputline").style.display = "flex";
+  setPrompt();
+  $("cmd").focus();
+}
+
+/* ------------------------------------------------------------------- wiring */
+$("cmd").addEventListener("keydown", async (ev) => {
+  if (ev.key === "Enter") {
+    const line = $("cmd").value;
+    $("cmd").value = "";
+    write(promptHtml() + esc(line));
+    if (line.trim()) { history.push(line); histPos = history.length; }
+    await execute(line);
+  } else if (ev.key === "ArrowUp") {
+    ev.preventDefault();
+    if (histPos > 0) $("cmd").value = history[--histPos] || "";
+  } else if (ev.key === "ArrowDown") {
+    ev.preventDefault();
+    if (histPos < history.length - 1) $("cmd").value = history[++histPos] || "";
+    else { histPos = history.length; $("cmd").value = ""; }
+  }
+});
+
+$("term").addEventListener("click", (ev) => {
+  const el = ev.target.closest(".hit-path");
+  if (el) openInEditor(el.dataset.path, +el.dataset.line, +el.dataset.end);
+});
+$("tree").addEventListener("click", (ev) => {
+  const el = ev.target.closest(".file");
+  if (el) openInEditor(el.dataset.path, 1, 0);
+});
+$("termScroll").addEventListener("click", (ev) => {
+  if (!ev.target.closest(".hit-path")) $("cmd").focus();
+});
+$("repoSelect").addEventListener("change", (ev) => {
+  selectRepo(ev.target.value);
+  write(promptHtml() + `cd ../${esc(ev.target.value)}`);
+});
+
+boot();
 </script>
 </body>
 </html>
