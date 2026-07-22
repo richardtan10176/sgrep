@@ -33,6 +33,10 @@ import sgrep  # noqa: E402
 # it was added here. Without the pin, two builds of the same Dockerfile index
 # whatever `main` happened to be, and image contents drift silently; the sha
 # check also means a moved tag fails the build instead of changing the demo.
+#
+# `sha` must be the COMMIT, which for an annotated tag is not what a plain
+# ls-remote prints — ask for the peeled ref and fall back to the direct one:
+#   git ls-remote <url> 'refs/tags/<tag>^{}' 'refs/tags/<tag>' | head -1
 REPOS = [
     {
         "id": "requests",
@@ -48,7 +52,7 @@ REPOS = [
         "name": "Flask",
         "url": "https://github.com/pallets/flask",
         "ref": "3.1.3",
-        "sha": "8d05782cf7e01c815ceed85eac9d744533af4c44",
+        "sha": "22d924701a6ae2e4cd01e9a15bbaf3946094af65",
         "subdir": "src/flask",
         "description": "pallets/flask — a lightweight WSGI web framework.",
     },
@@ -83,7 +87,9 @@ def clone(url: str, ref: str, sha: str, dest: str):
     ).stdout.strip()
     if head != sha:
         raise SystemExit(
-            f"{url} {ref} resolves to {head}, expected pinned {sha}"
+            f"{url} {ref} resolves to commit {head}, expected pinned {sha}.\n"
+            f"Either the tag moved, or the pin holds an annotated tag's object "
+            f"hash instead of its commit — see the note above REPOS."
         )
 
 
