@@ -24,13 +24,18 @@ web = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
 ]
+# The MCP server (src/sgrep_mcp.py) that exposes semantic search to AI agents.
+mcp = [
+    "mcp>=1.2",
+]
 
 [project.scripts]
 sgrep = "sgrep:main"
+sgrep-mcp = "sgrep_mcp:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-py-modules = ["sgrep", "embedder"]
+py-modules = ["sgrep", "embedder", "sgrep_mcp"]
 # NOTE: `packages` is an unhelpfully generic top-level import name to install
 # into site-packages; worth renaming to `sgrep_packages` (or folding
 # sgrep_visitor.py up into src/) if this ever ships to PyPI.

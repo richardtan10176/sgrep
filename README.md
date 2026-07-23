@@ -66,6 +66,28 @@ rebuilt rather than silently mixed with fresh query vectors.
 Only `.py` files are indexed. Inside a git repo sgrep honors `.gitignore`;
 outside one it skips vendored/build directories and virtualenvs.
 
+## Use with an AI agent (MCP)
+
+sgrep ships an [MCP](https://modelcontextprotocol.io) server so a coding agent
+can search your code by intent — the one thing its built-in grep can't do — and
+it does so **locally**, which matters most for agents that aren't allowed to
+send code to the cloud.
+
+```bash
+pip install -e '.[mcp]'
+claude mcp add sgrep -- sgrep-mcp      # register with Claude Code
+```
+
+It exposes one tool, `search_code`, over the directory the server is launched
+in. The agent calls it with a description instead of a keyword:
+
+> *find where we reject a stale index and rebuild it*
+
+and gets back the matching functions with `file:line` and source. It complements
+grep rather than replacing it: grep when you know the token, `search_code` when
+you can only describe the behavior. The index is built on startup and refreshed
+on each call, so results track edits the agent makes mid-session.
+
 ## Web demo
 
 ```bash

@@ -19,8 +19,8 @@ import numpy as np
 
 
 MODEL_REPO = "sentence-transformers/all-MiniLM-L6-v2"
-# Pinned so the weights can't change under an existing index. Bumping this
-# changes MODEL_NAME in sgrep.py, which invalidates and rebuilds old indexes.
+
+#pin this so that new weights dont mess up the previous embeds
 MODEL_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
 
 # remote path -> local filename

@@ -501,7 +501,6 @@ def init_path(path: str, reindex: bool = False) -> Index:
 
 
 def main(argv=None) -> int:
-    """Exit codes follow grep: 0 found something, 1 found nothing, 2 failed."""
     parser = argparse.ArgumentParser(
         prog="sgrep",
         description="Semantic code search over a local Python codebase.",
